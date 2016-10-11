@@ -50,7 +50,7 @@ type Filter struct {
 func init() {
 	filename := filterName + ".json"
 	config := new(Config)
-	err := storage.LookupStoreByConfig(filterName).UnmarshallJson(filename, config)
+	err := storage.LookupStoreByFilterName(filterName).UnmarshallJson(filename, config)
 	if err != nil {
 		glog.Fatalf("storage.ReadJsonConfig(%#v) failed: %s", filename, err)
 	}
@@ -181,8 +181,8 @@ func (f *Filter) Request(ctx context.Context, req *http.Request) (context.Contex
 		return ctx, nil, err
 	}
 
-	go helpers.IoCopy(loConn, c)
-	go helpers.IoCopy(c, loConn)
+	go helpers.IOCopy(loConn, c)
+	go helpers.IOCopy(c, loConn)
 
 	return ctx, filters.DummyRequest, nil
 }

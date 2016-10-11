@@ -12,7 +12,6 @@ import (
 	"github.com/cloudflare/golibs/lrucache"
 	"github.com/phuslu/glog"
 
-	"../../dialer"
 	"../../filters"
 	"../../helpers"
 	"../../proxy"
@@ -56,7 +55,7 @@ type Filter struct {
 func init() {
 	filename := filterName + ".json"
 	config := new(Config)
-	err := storage.LookupStoreByConfig(filterName).UnmarshallJson(filename, config)
+	err := storage.LookupStoreByFilterName(filterName).UnmarshallJson(filename, config)
 	if err != nil {
 		glog.Fatalf("storage.ReadJsonConfig(%#v) failed: %s", filename, err)
 	}
@@ -73,20 +72,25 @@ func init() {
 }
 
 func NewFilter(config *Config) (filters.Filter, error) {
-	d := &dialer.Dialer{
+	d := &helpers.Dialer{
 		Dialer: &net.Dialer{
 			KeepAlive: time.Duration(config.Transport.Dialer.KeepAlive) * time.Second,
 			Timeout:   time.Duration(config.Transport.Dialer.Timeout) * time.Second,
 			DualStack: config.Transport.Dialer.DualStack,
 		},
-		DNSCache:       lrucache.NewLRUCache(config.Transport.Dialer.DNSCacheSize),
-		DNSCacheExpiry: time.Duration(config.Transport.Dialer.DNSCacheExpiry) * time.Second,
-		BlackList:      lrucache.NewLRUCache(1024),
+		Resolver: &helpers.Resolver{
+			LRUCache:  lrucache.NewLRUCache(config.Transport.Dialer.DNSCacheSize),
+			DNSExpiry: time.Duration(config.Transport.Dialer.DNSCacheExpiry) * time.Second,
+			BlackList: lrucache.NewLRUCache(1024),
+		},
 	}
 
-	if ips, err := helpers.LocalInterfaceIPs(); err == nil {
+	if ips, err := helpers.LocalIPv4s(); err == nil {
 		for _, ip := range ips {
-			d.BlackList.Set(ip.String(), struct{}{}, time.Time{})
+			d.Resolver.BlackList.Set(ip.String(), struct{}{}, time.Time{})
+		}
+		for _, s := range []string{"127.0.0.1", "::1"} {
+			d.Resolver.BlackList.Set(s, struct{}{}, time.Time{})
 		}
 	}
 
@@ -164,8 +168,8 @@ func (f *Filter) RoundTrip(ctx context.Context, req *http.Request) (context.Cont
 		}
 		defer lconn.Close()
 
-		go helpers.IoCopy(rconn, lconn)
-		helpers.IoCopy(lconn, rconn)
+		go helpers.IOCopy(rconn, lconn)
+		helpers.IOCopy(lconn, rconn)
 
 		return ctx, filters.DummyResponse, nil
 	default:

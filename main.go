@@ -6,7 +6,9 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 
 	"./httpproxy"
 	"./httpproxy/helpers"
@@ -24,6 +26,7 @@ func main() {
 		return
 	}
 
+	helpers.FixOSArgs0()
 	helpers.SetFlagsIfAbsent(map[string]string{
 		"logtostderr": "true",
 		"v":           "2",
@@ -49,8 +52,8 @@ GoProxy Version    : %s (go/%s http2/%s %s/%s)`,
 		if ip, port, err := net.SplitHostPort(addr); err == nil {
 			switch ip {
 			case "", "0.0.0.0", "::":
-				if ips, err := helpers.LocalInterfaceIPs(); err == nil && len(ips) > 0 {
-					ip = ips[len(ips)-1].String()
+				if ips, err := helpers.LocalIPv4s(); err == nil && len(ips) > 0 {
+					ip = ips[0].String()
 				}
 			}
 			addr = net.JoinHostPort(ip, port)
@@ -69,9 +72,16 @@ Enabled Filters    : %v`,
 Pac Server         : http://%s/proxy.pac`, addr)
 			}
 		}
-		go httpproxy.ServeProfile(profile)
+		go httpproxy.ServeProfile(profile, "goproxy "+version)
 	}
 	fmt.Fprintf(os.Stderr, "\n------------------------------------------------------\n")
+
+	if ws, ok := os.LookupEnv("GOPROXY_WAIT_SECONDS"); ok {
+		if ws1, err := strconv.Atoi(ws); err == nil {
+			time.Sleep(time.Duration(ws1) * time.Second)
+			return
+		}
+	}
 
 	select {}
 }

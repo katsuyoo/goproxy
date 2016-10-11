@@ -12,8 +12,8 @@ import (
 	"github.com/phuslu/glog"
 	"github.com/phuslu/net/http2"
 
-	"../../dialer"
 	"../../filters"
+	"../../helpers"
 	"../../proxy"
 	"../../storage"
 )
@@ -56,7 +56,7 @@ type Filter struct {
 func init() {
 	filename := filterName + ".json"
 	config := new(Config)
-	err := storage.LookupStoreByConfig(filterName).UnmarshallJson(filename, config)
+	err := storage.LookupStoreByFilterName(filterName).UnmarshallJson(filename, config)
 	if err != nil {
 		glog.Fatalf("storage.ReadJsonConfig(%#v) failed: %s", filename, err)
 	}
@@ -96,21 +96,18 @@ func NewFilter(config *Config) (filters.Filter, error) {
 		DualStack: config.Transport.Dialer.DualStack,
 	}
 
-	d := &dialer.Dialer{
-		Dialer:         d0,
-		DNSCache:       lrucache.NewLRUCache(config.Transport.Dialer.DNSCacheSize),
-		DNSCacheExpiry: time.Duration(config.Transport.Dialer.DNSCacheExpiry) * time.Second,
-		BlackList:      nil,
-		Level:          2,
+	d := &helpers.Dialer{
+		Dialer: d0,
+		Resolver: &helpers.Resolver{
+			LRUCache:  lrucache.NewLRUCache(config.Transport.Dialer.DNSCacheSize),
+			DNSExpiry: time.Duration(config.Transport.Dialer.DNSCacheExpiry) * time.Second,
+		},
+		Level: 2,
 	}
 
 	for _, server := range servers {
 		if server.Host != "" {
-			host := server.URL.Host
-			if h, _, err := net.SplitHostPort(host); err == nil {
-				host = h
-			}
-			d.DNSCache.Set(host, server.Host, time.Time{})
+			d.Resolver.LRUCache.Set(server.URL.Hostname(), server.Host, time.Time{})
 		}
 	}
 

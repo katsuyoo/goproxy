@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"net"
 )
 
 func main() {
-	fmt.Printf("%#v, err=%#v\n", "foo", nil)
+	v, err := net.LookupIP("www.google.com")
+	fmt.Printf("%+v, err=%#v\n", v, err)
 }

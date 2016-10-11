@@ -1,10 +1,9 @@
-package dialer
+package helpers
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -12,30 +11,22 @@ import (
 	"time"
 
 	"github.com/cloudflare/golibs/lrucache"
-	"github.com/miekg/dns"
 	"github.com/phuslu/glog"
-
-	"../helpers"
 )
 
 type MultiDialer struct {
 	Dialer interface {
 		Dial(network, addr string) (net.Conn, error)
 	}
-	DisableIPv6       bool
-	ForceIPv6         bool
+	Resolver          *Resolver
 	SSLVerify         bool
-	EnableRemoteDNS   bool
 	LogToStderr       bool
 	TLSConfig         *tls.Config
-	SiteToAlias       *helpers.HostMatcher
+	SiteToAlias       *HostMatcher
 	GoogleTLSConfig   *tls.Config
 	GoogleG2PKP       []byte
 	IPBlackList       lrucache.Cache
 	HostMap           map[string][]string
-	DNSServers        []net.IP
-	DNSCache          lrucache.Cache
-	DNSCacheExpiry    time.Duration
 	TLSConnDuration   lrucache.Cache
 	TLSConnError      lrucache.Cache
 	TLSConnReadBuffer int
@@ -49,88 +40,6 @@ func (d *MultiDialer) ClearCache() {
 	d.TLSConnError.Clear()
 }
 
-func (d *MultiDialer) lookupHost1(name string) (addrs []string, err error) {
-	ips, err := helpers.LookupIP(name)
-	if err != nil {
-		return nil, err
-	}
-
-	addrs = make([]string, 0)
-	for _, ip := range ips {
-		h := ip.String()
-		if _, ok := d.IPBlackList.GetQuiet(h); ok {
-			continue
-		}
-
-		if strings.Contains(h, ":") {
-			if d.ForceIPv6 || !d.DisableIPv6 {
-				addrs = append(addrs, h)
-			}
-		} else {
-			if !d.ForceIPv6 {
-				addrs = append(addrs, h)
-			}
-		}
-	}
-
-	return addrs, nil
-}
-
-func (d *MultiDialer) lookupHost2(name string, dnsserver net.IP) (addrs []string, err error) {
-	m := &dns.Msg{}
-
-	switch {
-	case d.ForceIPv6:
-		m.SetQuestion(dns.Fqdn(name), dns.TypeAAAA)
-	case d.DisableIPv6:
-		m.SetQuestion(dns.Fqdn(name), dns.TypeA)
-	default:
-		m.SetQuestion(dns.Fqdn(name), dns.TypeANY)
-	}
-
-	r, err := dns.Exchange(m, net.JoinHostPort(dnsserver.String(), "53"))
-	if err != nil {
-		return nil, err
-	}
-
-	if len(r.Answer) < 1 {
-		return nil, errors.New("no Answer")
-	}
-
-	addrs = []string{}
-
-	for _, rr := range r.Answer {
-		var addr string
-
-		if aaaa, ok := rr.(*dns.AAAA); ok {
-			addr = aaaa.AAAA.String()
-		}
-		if a, ok := rr.(*dns.A); ok {
-			addr = a.A.String()
-		}
-
-		if addr == "" {
-			continue
-		}
-
-		if _, ok := d.IPBlackList.GetQuiet(addr); ok {
-			continue
-		}
-
-		addrs = append(addrs, addr)
-	}
-
-	return addrs, nil
-}
-
-func (d *MultiDialer) LookupHost(name string) (addrs []string, err error) {
-	if d.EnableRemoteDNS {
-		return d.lookupHost2(name, d.DNSServers[0])
-	} else {
-		return d.lookupHost1(name)
-	}
-}
-
 func (d *MultiDialer) LookupAlias(alias string) (addrs []string, err error) {
 	names, ok := d.HostMap[alias]
 	if !ok {
@@ -138,22 +47,16 @@ func (d *MultiDialer) LookupAlias(alias string) (addrs []string, err error) {
 	}
 
 	seen := make(map[string]struct{}, 0)
-	expiry := time.Now().Add(d.DNSCacheExpiry)
 	for _, name := range names {
 		var addrs0 []string
 		if net.ParseIP(name) != nil {
 			addrs0 = []string{name}
-			expiry = time.Time{}
-		} else if addrs1, ok := d.DNSCache.Get(name); ok {
-			addrs0 = addrs1.([]string)
 		} else {
-			addrs0, err = d.LookupHost(name)
+			addrs0, err = d.Resolver.LookupHost(name)
 			if err != nil {
 				glog.Warningf("LookupHost(%#v) error: %s", name, err)
 				addrs0 = []string{}
 			}
-			glog.V(2).Infof("LookupHost(%#v) return %v", name, addrs0)
-			d.DNSCache.Set(name, addrs0, expiry)
 		}
 		for _, addr := range addrs0 {
 			seen[addr] = struct{}{}
@@ -180,53 +83,6 @@ func (d *MultiDialer) LookupAlias(alias string) (addrs []string, err error) {
 	return addrs, nil
 }
 
-func (d *MultiDialer) ExpandAlias(alias string) error {
-	names, ok := d.HostMap[alias]
-	if !ok {
-		return fmt.Errorf("alias %#v not exists", alias)
-	}
-
-	expire := time.Now().Add(24 * time.Hour)
-	for _, name := range names {
-		seen := make(map[string]struct{}, 0)
-		for _, dnsserver := range d.DNSServers {
-			var addrs []string
-			var err error
-			if net.ParseIP(name) != nil {
-				addrs = []string{name}
-				expire = time.Time{}
-			} else if addrs, err = d.lookupHost2(name, dnsserver); err != nil {
-				glog.V(2).Infof("lookupHost2(%#v) error: %s", name, err)
-				continue
-			}
-			glog.V(2).Infof("ExpandList(%#v) %#v return %v", name, dnsserver, addrs)
-			for _, addr := range addrs {
-				seen[addr] = struct{}{}
-			}
-		}
-
-		if len(seen) == 0 {
-			continue
-		}
-
-		if addrs, ok := d.DNSCache.Get(name); ok {
-			addrs1 := addrs.([]string)
-			for _, addr := range addrs1 {
-				seen[addr] = struct{}{}
-			}
-		}
-
-		addrs := make([]string, 0)
-		for addr := range seen {
-			addrs = append(addrs, addr)
-		}
-
-		d.DNSCache.Set(name, addrs, expire)
-	}
-
-	return nil
-}
-
 func (d *MultiDialer) Dial(network, address string) (net.Conn, error) {
 	return d.Dialer.Dial(network, address)
 }
@@ -237,11 +93,11 @@ func (d *MultiDialer) DialTLS(network, address string) (net.Conn, error) {
 
 func (d *MultiDialer) DialTLS2(network, address string, cfg *tls.Config) (net.Conn, error) {
 	if d.LogToStderr {
-		helpers.SetConsoleTextColorGreen()
+		SetConsoleTextColorGreen()
 	}
 	glog.V(2).Infof("MULTIDIALER DialTLS2(%#v, %#v) with good_addrs=%d, bad_addrs=%d", network, address, d.TLSConnDuration.Len(), d.TLSConnError.Len())
 	if d.LogToStderr {
-		helpers.SetConsoleTextColorReset()
+		SetConsoleTextColorReset()
 	}
 
 	if cfg == nil {
@@ -276,9 +132,9 @@ func (d *MultiDialer) DialTLS2(network, address string, cfg *tls.Config) (net.Co
 						addrs[i] = net.JoinHostPort(host, port)
 					}
 					switch {
-					case d.ForceIPv6:
+					case d.Resolver.ForceIPv6:
 						network = "tcp6"
-					case d.DisableIPv6:
+					case d.Resolver.DisableIPv6:
 						network = "tcp4"
 					}
 					conn, err := d.dialMultiTLS(network, addrs, config)
@@ -390,20 +246,14 @@ func (d *MultiDialer) dialMultiTLS(network string, addrs []string, config *tls.C
 	return nil, r.e
 }
 
-type racer struct {
-	addr     string
-	duration time.Duration
-}
-
-type racers []racer
-
-func (r racers) Len() int           { return len(r) }
-func (r racers) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
-func (r racers) Less(i, j int) bool { return r[i].duration < r[j].duration }
-
 func (d *MultiDialer) pickupTLSAddrs(addrs []string, n int) []string {
 	if len(addrs) <= n {
 		return addrs
+	}
+
+	type racer struct {
+		addr     string
+		duration time.Duration
 	}
 
 	goodAddrs := make([]racer, 0)
@@ -411,13 +261,13 @@ func (d *MultiDialer) pickupTLSAddrs(addrs []string, n int) []string {
 	badAddrs := make([]string, 0)
 
 	for _, addr := range addrs {
-		if duration, ok := d.TLSConnDuration.GetQuiet(addr); ok {
+		if duration, ok := d.TLSConnDuration.Get(addr); ok {
 			if d, ok := duration.(time.Duration); !ok {
 				glog.Errorf("%#v for %#v is not a time.Duration", duration, addr)
 			} else {
 				goodAddrs = append(goodAddrs, racer{addr, d})
 			}
-		} else if e, ok := d.TLSConnError.GetQuiet(addr); ok {
+		} else if e, ok := d.TLSConnError.Get(addr); ok {
 			if _, ok := e.(error); !ok {
 				glog.Errorf("%#v for %#v is not a error", e, addr)
 			} else {
@@ -430,7 +280,7 @@ func (d *MultiDialer) pickupTLSAddrs(addrs []string, n int) []string {
 
 	addrs1 := make([]string, 0, n)
 
-	sort.Sort(racers(goodAddrs))
+	sort.Slice(goodAddrs, func(i, j int) bool { return goodAddrs[i].duration < goodAddrs[j].duration })
 	if len(goodAddrs) > n/2 {
 		goodAddrs = goodAddrs[:n/2]
 	}
@@ -442,7 +292,7 @@ func (d *MultiDialer) pickupTLSAddrs(addrs []string, n int) []string {
 		if len(addrs1) < n && len(addrs2) > 0 {
 			m := n - len(addrs1)
 			if len(addrs2) > m {
-				helpers.ShuffleStringsN(addrs2, m)
+				ShuffleStringsN(addrs2, m)
 				addrs2 = addrs2[:m]
 			}
 			addrs1 = append(addrs1, addrs2...)
@@ -460,7 +310,7 @@ func (r *MultiResolver) LookupHost(host string) ([]string, error) {
 	if alias0, ok := r.MultiDialer.SiteToAlias.Lookup(host); ok {
 		alias := alias0.(string)
 		if hosts, err := r.MultiDialer.LookupAlias(alias); err == nil && len(hosts) > 0 {
-			helpers.ShuffleStrings(hosts)
+			ShuffleStrings(hosts)
 			return hosts, nil
 		}
 	}

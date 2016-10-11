@@ -38,7 +38,7 @@ type Filter struct {
 func init() {
 	filename := filterName + ".json"
 	config := new(Config)
-	err := storage.LookupStoreByConfig(filterName).UnmarshallJson(filename, config)
+	err := storage.LookupStoreByFilterName(filterName).UnmarshallJson(filename, config)
 	if err != nil {
 		glog.Fatalf("storage.ReadJsonConfig(%#v) failed: %s", filename, err)
 	}
@@ -141,8 +141,8 @@ func (f *Filter) RoundTrip(ctx context.Context, req *http.Request) (context.Cont
 	// 	}
 	// 	defer lconn.Close()
 
-	// 	go helpers.IoCopy(rconn, lconn)
-	// 	helpers.IoCopy(lconn, rconn)
+	// 	go helpers.IOCopy(rconn, lconn)
+	// 	helpers.IOCopy(lconn, rconn)
 
 	// 	ctx.Hijack(true)
 	// 	return ctx, nil, nil

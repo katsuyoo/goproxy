@@ -13,10 +13,10 @@
 	"RegionFilters": {
 		"Enabled": false,
 		"DataFile": "17monipdb.dat",
+		"DNSServer": "",
 		"DNSCacheSize": 4096,
 		"Rules": {
 			"default": "",
-			"ipv6": "direct",
 			"中国": "direct",
 			"局域网": "direct",
 			"保留地址": "direct",
@@ -28,6 +28,7 @@
 			"proxy.pac",
 			"GoProxyAPN.mobileconfig",
 			"GoProxy.crt",
+			"ip.html",
 		]
 	},
 	"GFWList": {
@@ -41,12 +42,21 @@
 	"MobileConfig": {
 		"Enabled": true,
 	},
+	"IPHTML": {
+		"Enabled": true,
+		"WhiteList": [
+			"127.0.0.1",
+			"192.168.*.*",
+		],
+	},
 	"BlackList": {
 		"Enabled": false,
 		"SiteRules": [
 			"122.225.103.120",
 			"139.129.85.85",
+			"202.102.41.15",
 			"221.231.6.79",
+			"61.160.149.75",
 			"61.160.183.252",
 			"ad.1111cpc.com",
 			"ad.xildiere.com",
@@ -57,9 +67,11 @@
 			"cm.miaozhen.atm.youku.com",
 			"cm.pos.baidu.com",
 			"cpro.baidu.com",
+			"dl.9xu.com",
 			"eclick.baidu.com",
 			"g.ggxt.net",
 			"googleads.g.doubleclick.net",
+			"hjskon.com",
 			"hm.baidu.com",
 			"imageplus.baidu.com",
 			"news.766ba.net",

@@ -1,6 +1,7 @@
 #!/bin/bash -xe
 
 export GITHUB_USER=${GITHUB_USER:-phuslu}
+export GITHUB_EMAIL=${GITHUB_EMAIL:-${GITHUB_USER}@noreply.github.com}
 export GITHUB_REPO=${GITHUB_REPO:-goproxy}
 export GITHUB_CI_REPO=${GITHUB_CI_REPO:-goproxy-ci}
 export GITHUB_COMMIT_ID=${TRAVIS_COMMIT:-${COMMIT_ID:-master}}
@@ -10,12 +11,13 @@ export GOROOT=${WORKING_DIR}/go
 export GOPATH=${WORKING_DIR}/gopath
 export PATH=$GOROOT/bin:$GOPATH/bin:$PATH
 export GOBRANCH=${GOBRANCH:-master}
+export CGO_ENABLED=${CGO_ENABLED:-0}
 
 if [ ${#GITHUB_TOKEN} -eq 0 ]; then
 	echo "WARNING: \$GITHUB_TOKEN is not set!"
 fi
 
-for CMD in curl awk git tar bzip2 xz 7za gcc make md5sum timeout
+for CMD in curl awk git tar bzip2 xz 7za gcc make sha1sum timeout
 do
 	if ! type -p ${CMD}; then
 		echo -e "\e[1;31mtool ${CMD} is not installed, abort.\e[0m"
@@ -38,8 +40,8 @@ function rename() {
 function init_github() {
 	pushd ${WORKING_DIR}
 
-	git config --global user.name ${GITHUB_USER}
-	git config --global user.email "${GITHUB_USER}@noreply.github.com"
+	git config --global user.name "${GITHUB_USER}"
+	git config --global user.email "${GITHUB_EMAIL}"
 
 	if ! grep -q 'machine github.com' ~/.netrc; then
 		if [ ${#GITHUB_TOKEN} -gt 0 ]; then
@@ -53,7 +55,7 @@ function init_github() {
 function build_go() {
 	pushd ${WORKING_DIR}
 
-	curl -k https://storage.googleapis.com/golang/go1.7.linux-amd64.tar.gz | tar xz
+	curl -k https://storage.googleapis.com/golang/go1.7.1.linux-amd64.tar.gz | tar xz
 	mv go goroot_bootstrap
 
 	git clone --branch ${GOBRANCH} https://github.com/phuslu/go
@@ -179,8 +181,12 @@ function build_repo_ex() {
 	pushd ${WORKING_DIR}/${GITHUB_REPO}
 
 	git checkout -f server.vps
+
+	awk 'match($1, /"((github\.com|golang\.org|gopkg\.in)\/.+)"/) {if (!seen[$1]++) {gsub("\"", "", $1); print $1}}' $(find . -name "*.go") | xargs -n1 -i go get -u -v {}
+
 	make
-	cp -r *.xz ${WORKING_DIR}/r${RELEASE}
+
+	cp -r $(/bin/ls *.{gz,bz2,xz}) ${WORKING_DIR}/r${RELEASE}
 
 	popd
 }

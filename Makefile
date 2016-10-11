@@ -39,6 +39,8 @@ SOURCES += $(REPO)/httpproxy/httpproxy.json
 SOURCES += $(wildcard $(REPO)/httpproxy/filters/*/*.json)
 SOURCES += $(REPO)/httpproxy/filters/autoproxy/gfwlist.txt
 SOURCES += $(REPO)/httpproxy/filters/autoproxy/17monipdb.dat
+SOURCES += $(REPO)/httpproxy/filters/autoproxy/ip.html
+SOURCES += $(REPO)/assets/packaging/gae.user.json.example
 
 ifeq ($(GOOS)_$(GOARCH), windows_amd64)
 	SOURCES += $(REPO)/assets/packaging/goproxy-gui.exe
@@ -53,6 +55,8 @@ else ifeq ($(GOOS), darwin)
 	SOURCES += $(REPO)/assets/packaging/get-latest-goproxy.sh
 else
 	SOURCES += $(REPO)/assets/packaging/goproxy-gtk.py
+	SOURCES += $(REPO)/assets/packaging/goproxy-gtk.png
+	SOURCES += $(REPO)/assets/packaging/goproxy-gtk.desktop
 	SOURCES += $(REPO)/assets/packaging/goproxy.sh
 	SOURCES += $(REPO)/assets/packaging/get-latest-goproxy.sh
 endif
@@ -69,7 +73,7 @@ $(GOPROXY_DIST): $(OBJECTS)
 	mkdir -p $(DISTDIR) $(STAGEDIR) $(GOPROXY_STAGEDIR)
 	cp $(OBJECTS) $(SOURCES) $(GOPROXY_STAGEDIR)
 ifeq ($(GOOS)_$(GOARCH), $(shell go env GOOS)_$(shell go env GOARCH))
-	$(GOPROXY_STAGEDIR)/$(GOPROXY_EXE) -version
+	GOPROXY_WAIT_SECONDS=0 $(GOPROXY_STAGEDIR)/$(GOPROXY_EXE)
 endif
 	cd $(STAGEDIR) && $(GOPROXY_DISTCMD) $@ *
 

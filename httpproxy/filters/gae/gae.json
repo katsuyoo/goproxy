@@ -57,7 +57,9 @@
 		// "*.youtube.com": "google_hk",
 	},
 	"ForceGAE": [
+		"business.google.com",
 		"domains.google.com",
+		"books.google.com",
 		"www.google.com/maps",
 		"www.google.com/patents",
 		"plus.google.com/$",
@@ -68,7 +70,7 @@
 		"Ciphers": [
 			"TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
 			"TLS_RSA_WITH_AES_128_CBC_SHA256",
-			// "TLS_RSA_WITH_AES_256_CBC_SHA256",
+			"TLS_RSA_WITH_3DES_EDE_CBC_SHA",
 		],
 		"ServerName": [
 			"appleid.apple.com",
@@ -124,7 +126,7 @@
 			"DNSCacheSize": 8192,
 			"SocketReadBuffer": 0,
 			"DualStack": false,
-			"KeepAlive": 180,
+			"KeepAlive": 120,
 			"Level": 4,
 			"Timeout": 8,
 		},
@@ -134,7 +136,7 @@
 		},
 		"DisableCompression": false,
 		"DisableKeepAlives": false,
-		"IdleConnTimeout": 180,
+		"IdleConnTimeout": 120,
 		"MaxIdleConnsPerHost": 64,
 		"ResponseHeaderTimeout": 16,
 		"RetryDelay": 0.5,
